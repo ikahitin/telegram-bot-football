@@ -32,7 +32,9 @@ def schedule_request(context: CallbackContext, chat_id: int) -> None:
 def make_request(context: CallbackContext) -> str:
     user_leagues = get_user_leagues(context)
     today_date = get_today_date()
-    querystring = {"date": today_date, "season": "2021", "timezone": "Europe/Kiev"}
+    user_timezone = context.user_data['timezone']
+    querystring = {"date": today_date, "season": "2021", "timezone": user_timezone}
+
     if context.bot_data.get('call_remaining', 2) > 1:
         try:
             resp = requests.request("GET", URL, headers=HEADERS, params=querystring)
@@ -53,14 +55,18 @@ def send_fixtures(context: CallbackContext) -> None:
     context.bot.send_message(chat_id, text=text)
 
 
-def prepare_text_for_message(response: str, user_leagues: list):
+def prepare_text_for_message(response: str, user_leagues: list) -> str:
     fixtures = json.loads(response)['response']
     leagues_by_user = defaultdict(list)
+
     for f in fixtures:
         if f['league']['id'] in user_leagues:
-            match = {'league': f['league'], 'home_team': f['teams']['home']['name'],
-                     'away_team': f['teams']['away']['name'], 'f_time': f['fixture']['date']}
+            match = {'league': f['league'],
+                     'home_team': f['teams']['home']['name'],
+                     'away_team': f['teams']['away']['name'],
+                     'f_time': f['fixture']['date']}
             leagues_by_user[f['league']['id']].append(match)
+
     msg = 'Schedule of matches for today:\n\n'
     for league, matches in leagues_by_user.items():
         msg += BOT_LEAGUES[league] + '\n'

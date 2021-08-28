@@ -1,16 +1,15 @@
 import logging
 
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, \
-    ReplyKeyboardRemove, InlineKeyboardButton
+from telegram import Update, InlineKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton
 from telegram.ext import CallbackContext, ConversationHandler, PicklePersistence, Updater, CallbackQueryHandler, \
     CommandHandler, MessageHandler, Filters
 
-from app.service import remove_job_if_exists, schedule_request
-from config import BOT_LEAGUES, TOKEN
-from database import save_user
-from utils import build_keyboard
+from app.service import schedule_request
+from config import TOKEN
+from database import save_user, save_timezone
+from utils import build_keyboard, get_summary_text
 
-LEAGUES, TIME, SUMMARY = range(3)
+LOCATION, LEAGUES, TIME = range(3)
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
@@ -36,21 +35,22 @@ def help_command(update: Update, context: CallbackContext):
     update.message.reply_text(text)
 
 
-def config(update: Update, context: CallbackContext) -> int:
-    """Initiates conversation to change setting of the bot."""
-    reply_keyboard = [['Continue', '/cancel']]
-    update.message.reply_text(
-        'This is the place where you can choose you want to get notifications and also when do you want to get them. '
-        'You can choose cancel to stop this.\n\n'
-        'Should we go on?',
-        reply_markup=ReplyKeyboardMarkup(
-            reply_keyboard, one_time_keyboard=True,
-        ),
-    )
-    return LEAGUES
+# def config(update: Update, context: CallbackContext) -> int:
+#     """Initiates conversation to change setting of the bot."""
+#     reply_keyboard = [['Continue', '/cancel']]
+#     update.message.reply_text(
+#         'This is the place where you can choose you want to get notifications and also when do you want to get them. '
+#         'You can choose cancel to stop this.\n\n'
+#         'Should we go on?',
+#         reply_markup=ReplyKeyboardMarkup(
+#             reply_keyboard, one_time_keyboard=True,
+#         ),
+#     )
+#     return LEAGUES
 
 
-def config_leagues(update: Update, context: CallbackContext, offset=None) -> None:
+def config(update: Update, context: CallbackContext, offset=None) -> None:
+    """Shows config for choosing leagues."""
     not_first_call = update.callback_query is not None
     if not_first_call and offset is None:
         offset = int(update.callback_query.data.split("#")[-1])
@@ -64,7 +64,8 @@ def config_leagues(update: Update, context: CallbackContext, offset=None) -> Non
             query.edit_message_text('Please choose your favourite leagues:', reply_markup=reply_markup)
     else:
         update.message.reply_text('Please choose your favourite leagues:', reply_markup=reply_markup)
-    return TIME
+
+    return LEAGUES
 
 
 def save_or_delete_league(update: Update, context: CallbackContext) -> None:
@@ -79,12 +80,34 @@ def save_or_delete_league(update: Update, context: CallbackContext) -> None:
     else:
         context.user_data['leagues'].append(league_id)
 
-    config_leagues(update, context, offset=offset)
+    config(update, context, offset=offset)
 
 
-def set_notify_time(update: Update, context: CallbackContext) -> int:
-    text = 'Send me time (in format HH:MM) when you want to receive match fixtures. Note that you should be sent me ' \
-           'in UTC timezone!\n'
+def ask_location(update: Update, context: CallbackContext) -> int:
+    """Asks user to send location."""
+    text = 'Please, send me your location I need it to determine your timezone\n'
+    keyboard = [
+        [InlineKeyboardButton("Continue with UTC timezone", callback_data='utc')]
+    ]
+    if 'timezone' in context.user_data:
+        ik_btn = [InlineKeyboardButton("Keep my current location", callback_data='skip')]
+        keyboard.append(ik_btn)
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.callback_query.message.edit_text(text, reply_markup=reply_markup)
+
+    return LOCATION
+
+
+def location(update: Update, context: CallbackContext) -> int:
+    """Saves timezone and asks for time."""
+    if not update.message.location:
+        update.message.reply_text("You would you have to send me location to find out the timezone")
+        return 0
+    else:
+        user_location = update.message.location
+        save_timezone(user_location, context)
+
+    text = 'Send me time (in format HH:MM) when you want to receive match fixtures.\n'
     reply_markup = None
     if 'notify_time' in context.user_data:
         user_time = context.user_data['notify_time']
@@ -93,28 +116,53 @@ def set_notify_time(update: Update, context: CallbackContext) -> int:
             [InlineKeyboardButton("Skip", callback_data='skip')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-    update.callback_query.message.edit_text(text, reply_markup=reply_markup)
-    return SUMMARY
+    update.message.reply_text(text, reply_markup=reply_markup)
+
+    return TIME
 
 
-def summary(update: Update, context: CallbackContext) -> int:
-    """Stores the info about the user and ends the conversation."""
-    if update.message:
-        message = update.message
-        chat_id = message.chat_id
-        context.user_data['notify_time'] = message.text
-    else:
-        message = update.callback_query.message
-        chat_id = message.chat_id
-        message.edit_text(message.text, reply_markup=None)
-    user_leagues = context.user_data['leagues']
-    leagues_to_show = []
-    for i in user_leagues:
-        leagues_to_show.append(BOT_LEAGUES[i])
-    user_time = context.user_data['notify_time']
-    leagues_to_show = ', '.join(map(str, leagues_to_show))
-    message.reply_text(f'Great! I will notify you about those leagues - {leagues_to_show} at {user_time}.',
-                       reply_markup=ReplyKeyboardRemove())
+def skip_location(update: Update, context: CallbackContext) -> int:
+    """Skips the location and asks for time."""
+    text = 'Send me time (in format HH:MM) when you want to receive match fixtures. Note that you should be sent me ' \
+           'in UTC timezone!\n'
+    reply_markup = None
+    message = update.callback_query.message
+    message.edit_text(message.text, reply_markup=None)
+    if update.callback_query.data == 'utc':
+        user_location = None
+        context.user_data['timezone'] = user_location
+    if 'notify_time' in context.user_data:
+        user_time = context.user_data['notify_time']
+        text += f'\nFor now your time is set to {user_time}'
+        keyboard = [
+            [InlineKeyboardButton("Skip", callback_data='skip_time')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+    message.reply_text(text, reply_markup=reply_markup)
+
+    return TIME
+
+
+def time(update: Update, context: CallbackContext) -> int:
+    """Stores the time info about the user and ends the conversation."""
+    message = update.message
+    chat_id = message.chat_id
+    context.user_data['notify_time'] = message.text
+    text = get_summary_text(context)
+    message.reply_text(text, reply_markup=ReplyKeyboardRemove())
+
+    schedule_request(context, chat_id)
+    return ConversationHandler.END
+
+
+def skip_time(update: Update, context: CallbackContext) -> int:
+    """Skips the time and ends the conversation."""
+    message = update.callback_query.message
+    chat_id = message.chat_id
+    message.edit_text(message.text, reply_markup=None)
+
+    text = get_summary_text(context)
+    message.reply_text(text, reply_markup=ReplyKeyboardRemove())
 
     schedule_request(context, chat_id)
     return ConversationHandler.END
@@ -131,7 +179,7 @@ def cancel(update: Update, context: CallbackContext) -> int:
     return ConversationHandler.END
 
 
-def unknown(update: Update, context: CallbackContext):
+def unknown(update: Update, context: CallbackContext) -> None:
     """Replies if user sends unknown command or text."""
     update.message.reply_text(
         "Sorry, I didn't understand that command. Try using /help",
@@ -146,22 +194,27 @@ def main() -> None:
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler("start", start))
     dispatcher.add_handler(CommandHandler("help", help_command))
-    dispatcher.add_handler(CallbackQueryHandler(config_leagues, pattern='^edit_config'))
+    dispatcher.add_handler(CallbackQueryHandler(config, pattern='^edit_config'))
     dispatcher.add_handler(CallbackQueryHandler(save_or_delete_league, pattern='^league'))
 
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('config', config)],
         states={
-            LEAGUES: [MessageHandler(Filters.regex('^(Continue)$'), config_leagues)],
-            TIME: [CallbackQueryHandler(set_notify_time, pattern='^set_time')],
-            SUMMARY: [MessageHandler(Filters.regex('^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$'), summary),
-                      CallbackQueryHandler(summary, pattern='^skip')]
+            LEAGUES: [CallbackQueryHandler(ask_location, pattern='^set_leagues')],
+            LOCATION: [
+                MessageHandler(Filters.text, location),
+                CallbackQueryHandler(skip_location, pattern='^skip$|^utc$')
+            ],
+            TIME: [
+                MessageHandler(Filters.regex('^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$'), time),
+                CallbackQueryHandler(skip_time, pattern='skip')
+            ],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     )
-    dispatcher.add_handler(MessageHandler(~(Filters.command |
-                                            Filters.regex('^Continue') |
-                                            Filters.regex('^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$')), unknown))
+    # dispatcher.add_handler(MessageHandler(~(Filters.command |
+    #                                       Filters.regex('^Continue') |
+    #                                       Filters.regex('^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$')), unknown))
     dispatcher.add_handler(conv_handler)
     updater.start_polling()
     updater.idle()
