@@ -1,7 +1,7 @@
 import logging
 
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, \
-    ReplyKeyboardRemove
+    ReplyKeyboardRemove, InlineKeyboardButton
 from telegram.ext import CallbackContext, ConversationHandler, PicklePersistence, Updater, CallbackQueryHandler, \
     CommandHandler, MessageHandler, Filters
 
@@ -85,28 +85,38 @@ def save_or_delete_league(update: Update, context: CallbackContext) -> None:
 def set_notify_time(update: Update, context: CallbackContext) -> int:
     text = 'Send me time (in format HH:MM) when you want to receive match fixtures. Note that you should be sent me ' \
            'in UTC timezone!\n'
+    reply_markup = None
     if 'notify_time' in context.user_data:
         user_time = context.user_data['notify_time']
-        text += f'For now your time is set to {user_time}'
-    update.callback_query.message.edit_text(text)
+        text += f'\nFor now your time is set to {user_time}'
+        keyboard = [
+            [InlineKeyboardButton("Skip", callback_data='skip')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+    update.callback_query.message.edit_text(text, reply_markup=reply_markup)
     return SUMMARY
 
 
 def summary(update: Update, context: CallbackContext) -> int:
     """Stores the info about the user and ends the conversation."""
-    chat_id = update.message.chat_id
-    context.user_data['notify_time'] = update.message.text
+    if update.message:
+        message = update.message
+        chat_id = message.chat_id
+        context.user_data['notify_time'] = message.text
+    else:
+        message = update.callback_query.message
+        chat_id = message.chat_id
+        message.edit_text(message.text, reply_markup=None)
     user_leagues = context.user_data['leagues']
     leagues_to_show = []
     for i in user_leagues:
         leagues_to_show.append(BOT_LEAGUES[i])
     user_time = context.user_data['notify_time']
     leagues_to_show = ', '.join(map(str, leagues_to_show))
-    update.message.reply_text(f'Great! I will notify you about those leagues - {leagues_to_show} at {user_time}.',
-                              reply_markup=ReplyKeyboardRemove())
+    message.reply_text(f'Great! I will notify you about those leagues - {leagues_to_show} at {user_time}.',
+                       reply_markup=ReplyKeyboardRemove())
 
     remove_job_if_exists(str(chat_id), context)
-
     schedule_request(context, chat_id)
     return ConversationHandler.END
 
@@ -145,7 +155,8 @@ def main() -> None:
         states={
             LEAGUES: [MessageHandler(Filters.regex('^(Continue)$'), config_leagues)],
             TIME: [CallbackQueryHandler(set_notify_time, pattern='^set_time')],
-            SUMMARY: [MessageHandler(Filters.regex('^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$'), summary)]
+            SUMMARY: [MessageHandler(Filters.regex('^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$'), summary),
+                      CallbackQueryHandler(summary, pattern='^skip')]
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     )
