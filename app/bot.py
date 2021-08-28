@@ -116,7 +116,6 @@ def summary(update: Update, context: CallbackContext) -> int:
     message.reply_text(f'Great! I will notify you about those leagues - {leagues_to_show} at {user_time}.',
                        reply_markup=ReplyKeyboardRemove())
 
-    remove_job_if_exists(str(chat_id), context)
     schedule_request(context, chat_id)
     return ConversationHandler.END
 

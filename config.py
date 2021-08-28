@@ -13,7 +13,7 @@ URL = "https://api-football-v1.p.rapidapi.com/v3/fixtures"
 BOT_LEAGUES = {
     39: "🏴󠁧󠁢󠁥󠁮󠁧󠁿󠁢 Premier League",
     140: "🇪🇸 La Liga",
-    378: '🇫🇷 Ligue 1',
+    61: '🇫🇷 Ligue 1',
     242: "🇮🇹 Serie A",
     78: '🇩🇪 Bundesliga',
     2: '✨ UEFA Champions League',

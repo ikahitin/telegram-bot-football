@@ -25,7 +25,8 @@ def schedule_request(context: CallbackContext, chat_id: int) -> None:
     """Scheduler request by user time."""
     user_time = context.user_data['notify_time']
     str_to_time = datetime.strptime(user_time, '%H:%M').time()
-    context.job_queue.run_once(send_fixtures, str_to_time, context=(chat_id, context), name=str(chat_id))
+    remove_job_if_exists(str(chat_id), context)
+    context.job_queue.run_daily(send_fixtures, str_to_time, context=(chat_id, context), name=str(chat_id))
 
 
 def make_request(context: CallbackContext) -> str:
@@ -50,11 +51,6 @@ def send_fixtures(context: CallbackContext) -> None:
     if not text:
         text = 'Seem like no matches for today 😕'
     context.bot.send_message(chat_id, text=text)
-
-    remove_job_if_exists(str(chat_id), context)
-    user_time = context.user_data['notify_time']
-    str_to_time = datetime.strptime(user_time, '%H:%M').time()
-    context.job_queue.run_once(send_fixtures, str_to_time, context=(chat_id, context), name=str(chat_id))
 
 
 def prepare_text_for_message(response: str, user_leagues: list):
