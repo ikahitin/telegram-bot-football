@@ -1,6 +1,7 @@
-from datetime import datetime
+from datetime import datetime, time
 from typing import Iterator
 
+import pytz
 from telegram import InlineKeyboardButton
 from telegram.ext import CallbackContext
 
@@ -15,7 +16,6 @@ def chunks(lst, n) -> Iterator[list]:
 
 def get_today_date() -> datetime.date:
     date_now = datetime.now().date()
-
     return date_now
 
 
@@ -43,7 +43,6 @@ def build_keyboard(context: CallbackContext, offset: int) -> list:
         ],
         [InlineKeyboardButton("Next", callback_data='set_leagues')],
     ]
-
     return keyboard
 
 
@@ -57,5 +56,14 @@ def get_summary_text(context: CallbackContext) -> str:
     user_time = context.user_data['notify_time']
     leagues_to_show = ', '.join(map(str, leagues_to_show))
     text = f'Great! I will notify you about those leagues - {leagues_to_show} at {user_time}.'
-
     return text
+
+
+def time_to_tz_naive(t, tz_in, tz_out):
+    return tz_in.localize(datetime.combine(datetime.today(), t)).astimezone(tz_out).time()
+
+
+def convert_time(user_str_time: str, user_timezone: str) -> time:
+    user_time = datetime.strptime(user_str_time, '%H:%M').time()
+    utc_user_time = time_to_tz_naive(user_time, pytz.timezone(user_timezone), pytz.timezone("Etc/UTC"))
+    return utc_user_time

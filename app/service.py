@@ -8,7 +8,7 @@ import requests
 
 from config import HEADERS, URL, BOT_LEAGUES
 from database import get_user_leagues
-from utils import get_today_date
+from utils import get_today_date, convert_time
 
 
 def remove_job_if_exists(name: str, context: CallbackContext) -> bool:
@@ -24,9 +24,10 @@ def remove_job_if_exists(name: str, context: CallbackContext) -> bool:
 def schedule_request(context: CallbackContext, chat_id: int) -> None:
     """Scheduler request by user time."""
     user_time = context.user_data['notify_time']
-    str_to_time = datetime.strptime(user_time, '%H:%M').time()
+    user_timezone = context.user_data['timezone']
+    time_in_utc = convert_time(user_time, user_timezone)
     remove_job_if_exists(str(chat_id), context)
-    context.job_queue.run_daily(send_fixtures, str_to_time, context=(chat_id, context), name=str(chat_id))
+    context.job_queue.run_daily(send_fixtures, time_in_utc, context=(chat_id, context), name=str(chat_id))
 
 
 def make_request(context: CallbackContext) -> str:
@@ -35,7 +36,7 @@ def make_request(context: CallbackContext) -> str:
     user_timezone = context.user_data['timezone']
     querystring = {"date": today_date, "season": "2021", "timezone": user_timezone}
 
-    if context.bot_data.get('call_remaining', 2) > 1:
+    if context.bot_data.get('calls_remaining', 2) > 1:
         try:
             resp = requests.request("GET", URL, headers=HEADERS, params=querystring)
         except requests.ConnectionError:
@@ -81,4 +82,4 @@ def prepare_text_for_message(response: str, user_leagues: list) -> str:
 
 def limit_control(context: CallbackContext, headers) -> None:
     calls = int(headers['X-RateLimit-requests-Remaining'])
-    context.bot_data['call_remaining'] = calls
+    context.bot_data['calls_remaining'] = calls

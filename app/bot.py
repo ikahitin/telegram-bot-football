@@ -1,11 +1,14 @@
+import html
+import json
 import logging
+import traceback
 
-from telegram import Update, InlineKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton
+from telegram import Update, InlineKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, ParseMode
 from telegram.ext import CallbackContext, ConversationHandler, PicklePersistence, Updater, CallbackQueryHandler, \
     CommandHandler, MessageHandler, Filters
 
 from app.service import schedule_request
-from config import TOKEN
+from config import TOKEN, DEVELOPER_CHAT_ID, DEVELOPER_USER_ID
 from database import save_user, save_timezone
 from utils import build_keyboard, get_summary_text
 
@@ -35,18 +38,16 @@ def help_command(update: Update, context: CallbackContext):
     update.message.reply_text(text)
 
 
-# def config(update: Update, context: CallbackContext) -> int:
-#     """Initiates conversation to change setting of the bot."""
-#     reply_keyboard = [['Continue', '/cancel']]
-#     update.message.reply_text(
-#         'This is the place where you can choose you want to get notifications and also when do you want to get them. '
-#         'You can choose cancel to stop this.\n\n'
-#         'Should we go on?',
-#         reply_markup=ReplyKeyboardMarkup(
-#             reply_keyboard, one_time_keyboard=True,
-#         ),
-#     )
-#     return LEAGUES
+def stats(update: Update, context: CallbackContext):
+    """Send a message when the command /start is issued."""
+    if str(update.message.from_user.id) == DEVELOPER_USER_ID:
+        total_users = len(context.bot_data['users'])
+        active_jobs = len(context.job_queue.jobs())
+        calls_remaining = context.bot_data['calls_remaining']
+        text = 'Total number of users - {}\n' \
+               'Scheduled jobs - {}\n' \
+               'Request left - {}'.format(total_users, active_jobs, calls_remaining)
+        update.message.reply_text(text)
 
 
 def config(update: Update, context: CallbackContext, offset=None) -> None:
@@ -186,6 +187,32 @@ def unknown(update: Update, context: CallbackContext) -> None:
     )
 
 
+def error_handler(update: object, context: CallbackContext) -> None:
+    """Log the error and send a telegram message to notify the developer."""
+    # Log the error before we do anything else, so we can see it even if something breaks.
+    logger.error(msg="Exception while handling an update:", exc_info=context.error)
+
+    # traceback.format_exception returns the usual python message about an exception, but as a
+    # list of strings rather than a single string, so we have to join them together.
+    tb_list = traceback.format_exception(None, context.error, context.error.__traceback__)
+    tb_string = ''.join(tb_list)
+
+    # Build the message with some markup and additional information about what happened.
+    # You might need to add some logic to deal with messages longer than the 4096 character limit.
+    update_str = update.to_dict() if isinstance(update, Update) else str(update)
+    message = (
+        f'An exception was raised while handling an update\n'
+        f'<pre>update = {html.escape(json.dumps(update_str, indent=2, ensure_ascii=False))}'
+        '</pre>\n\n'
+        f'<pre>context.chat_data = {html.escape(str(context.chat_data))}</pre>\n\n'
+        f'<pre>context.user_data = {html.escape(str(context.user_data))}</pre>\n\n'
+        f'<pre>{html.escape(tb_string)}</pre>'
+    )
+
+    # Send message to specific chat
+    context.bot.send_message(chat_id=DEVELOPER_CHAT_ID, text=message, parse_mode=ParseMode.HTML)
+
+
 def main() -> None:
     """Start the bot."""
     persistence = PicklePersistence(filename='persistence')
@@ -194,6 +221,7 @@ def main() -> None:
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler("start", start))
     dispatcher.add_handler(CommandHandler("help", help_command))
+    dispatcher.add_handler(CommandHandler("stats", stats))
     dispatcher.add_handler(CallbackQueryHandler(config, pattern='^edit_config'))
     dispatcher.add_handler(CallbackQueryHandler(save_or_delete_league, pattern='^league'))
 
@@ -202,7 +230,7 @@ def main() -> None:
         states={
             LEAGUES: [CallbackQueryHandler(ask_location, pattern='^set_leagues')],
             LOCATION: [
-                MessageHandler(Filters.text, location),
+                MessageHandler(((~Filters.command & Filters.text) | Filters.location), location),
                 CallbackQueryHandler(skip_location, pattern='^skip$|^utc$')
             ],
             TIME: [
@@ -212,9 +240,9 @@ def main() -> None:
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     )
-    # dispatcher.add_handler(MessageHandler(~(Filters.command |
-    #                                       Filters.regex('^Continue') |
-    #                                       Filters.regex('^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$')), unknown))
     dispatcher.add_handler(conv_handler)
+    dispatcher.add_handler(MessageHandler(Filters.all, unknown))
+    dispatcher.add_error_handler(error_handler)
+
     updater.start_polling()
     updater.idle()

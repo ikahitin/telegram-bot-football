@@ -7,6 +7,8 @@ load_dotenv(dotenv_path)
 
 TOKEN = os.environ.get("TOKEN")
 API_KEY = os.environ.get("API_KEY")
+DEVELOPER_CHAT_ID = os.environ.get("DEVELOPER_CHAT_ID")
+DEVELOPER_USER_ID = os.environ.get("DEVELOPER_USER_ID")
 
 URL = "https://api-football-v1.p.rapidapi.com/v3/fixtures"
 
