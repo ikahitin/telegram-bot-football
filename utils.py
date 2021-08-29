@@ -41,8 +41,10 @@ def build_keyboard(context: CallbackContext, offset: int) -> list:
                                  callback_data=f'edit_config#{offset + 1}' if offset < len(
                                      leagues) - 1 else 'edit_config#-1'),
         ],
-        [InlineKeyboardButton("Next", callback_data='set_leagues')],
     ]
+    if context.user_data['leagues']:
+        ik_btn = [InlineKeyboardButton("Next", callback_data='set_leagues')]
+        keyboard.append(ik_btn)
     return keyboard
 
 

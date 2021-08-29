@@ -51,14 +51,15 @@ def make_request(context: CallbackContext) -> str:
 def send_fixtures(context: CallbackContext) -> None:
     chat_id, context = context.job.context
     text = make_request(context)
-    if not text:
-        text = 'Seem like no matches for today 😕'
     context.bot.send_message(chat_id, text=text)
 
 
 def prepare_text_for_message(response: str, user_leagues: list) -> str:
     fixtures = json.loads(response)['response']
     leagues_by_user = defaultdict(list)
+
+    if not leagues_by_user:
+        return 'Seems like no matches for today 😕'
 
     for f in fixtures:
         if f['league']['id'] in user_leagues:
