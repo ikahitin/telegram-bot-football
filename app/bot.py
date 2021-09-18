@@ -7,12 +7,12 @@ from telegram import Update, InlineKeyboardMarkup, ReplyKeyboardRemove, InlineKe
 from telegram.ext import CallbackContext, ConversationHandler, PicklePersistence, Updater, CallbackQueryHandler, \
     CommandHandler, MessageHandler, Filters
 
-from app.service import schedule_request
+from app.service import schedule_request, send_bd_message
 from config import TOKEN, DEVELOPER_CHAT_ID, DEVELOPER_USER_ID
 from database import save_user, save_timezone
-from utils import build_keyboard, get_summary_text
+from utils import build_keyboard, get_summary_text, yield_list
 
-LOCATION, LEAGUES, TIME = range(3)
+LOCATION, LEAGUES, TIME, BROADCAST = range(4)
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
@@ -31,15 +31,15 @@ def start(update: Update, context: CallbackContext) -> None:
 
 
 def help_command(update: Update, context: CallbackContext):
-    """Send a message when the command /start is issued."""
+    """Send a message when the command /help is issued."""
     text = 'The bot sends schedule of matches every day at specified time.\n\nYou can choose by yourself from what ' \
-           'leagues you want to get notifications and time. To do that - use /config command\n\nIf you want to ' \
+           'leagues you want to get notifications. To do that - use /config command\n\nIf you want to ' \
            'cancel some operation - you can apply /cancel '
     update.message.reply_text(text)
 
 
 def stats(update: Update, context: CallbackContext):
-    """Send a message when the command /start is issued."""
+    """Send a message when the command /stats is issued."""
     if str(update.message.from_user.id) == DEVELOPER_USER_ID:
         total_users = len(context.bot_data['users'])
         active_jobs = len(context.job_queue.jobs())
@@ -100,7 +100,7 @@ def ask_location(update: Update, context: CallbackContext) -> int:
 
 
 def location(update: Update, context: CallbackContext) -> int:
-    """Saves timezone and asks for time."""
+    """Saves timezone from location and asks for time."""
     if not update.message.location:
         update.message.reply_text("You would you have to send me location to find out the timezone")
         return 0
@@ -108,7 +108,7 @@ def location(update: Update, context: CallbackContext) -> int:
         user_location = update.message.location
         save_timezone(user_location, context)
 
-    text = 'Send me time (in format HH:MM) when you want to receive match fixtures.\n'
+    text = 'Send me time (in format HH:MM, for example 10:00) when you want to receive match fixtures.\n'
     reply_markup = None
     if 'notify_time' in context.user_data:
         user_time = context.user_data['notify_time']
@@ -123,15 +123,13 @@ def location(update: Update, context: CallbackContext) -> int:
 
 
 def skip_location(update: Update, context: CallbackContext) -> int:
-    """Skips the location and asks for time."""
-    text = 'Send me time (in format HH:MM) when you want to receive match fixtures. Note that you should be sent me ' \
-           'in UTC timezone!\n'
+    """Skips location and asks for time."""
+    text = 'Send me time (in format HH:MM, for example 10:00) when you want to receive match fixtures.\n'
     reply_markup = None
     message = update.callback_query.message
     message.edit_text(message.text, reply_markup=None)
     if update.callback_query.data == 'utc':
-        user_location = None
-        context.user_data['timezone'] = user_location
+        context.user_data['timezone'] = "Etc/UTC"
     if 'notify_time' in context.user_data:
         user_time = context.user_data['notify_time']
         text += f'\nFor now your time is set to {user_time}'
@@ -145,7 +143,7 @@ def skip_location(update: Update, context: CallbackContext) -> int:
 
 
 def time(update: Update, context: CallbackContext) -> int:
-    """Stores the time info about the user and ends the conversation."""
+    """Stores time info about the user and ends the conversation."""
     message = update.message
     chat_id = message.chat_id
     context.user_data['notify_time'] = message.text
@@ -169,8 +167,26 @@ def skip_time(update: Update, context: CallbackContext) -> int:
     return ConversationHandler.END
 
 
+def broadcast(update: Update, context: CallbackContext) -> None:
+    """Ask for a message for broadcasting."""
+    user_id = update.message.from_user.id
+    if str(user_id) == DEVELOPER_USER_ID:
+        text = 'Send text that will be broadcasted to users'
+        update.message.reply_text(text)
+        return BROADCAST
+
+
+def broadcast_to_all(update: Update, context: CallbackContext) -> None:
+    """Schedules jobs for broadcasting."""
+    bd_message = update.message.text
+    users_generator = yield_list(context.bot_data['users'])
+    context.job_queue.run_repeating(send_bd_message, context=(users_generator, bd_message, context), interval=1,
+                                    name='broadcast')
+    return ConversationHandler.END
+
+
 def cancel(update: Update, context: CallbackContext) -> int:
-    """Cancels and ends the conversation."""
+    """Cancels operations and ends the conversation."""
     user = update.message.from_user
     logger.info("User %s canceled the conversation.", user.first_name)
     update.message.reply_text(
@@ -235,7 +251,15 @@ def main() -> None:
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     )
+    broadcast_conv = ConversationHandler(
+        entry_points=[CommandHandler('broadcast', broadcast)],
+        states={
+            BROADCAST: [MessageHandler((~Filters.command & Filters.text), broadcast_to_all)],
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+    )
     dispatcher.add_handler(conv_handler)
+    dispatcher.add_handler(broadcast_conv)
     dispatcher.add_handler(MessageHandler(Filters.all, unknown))
     dispatcher.add_error_handler(error_handler)
 

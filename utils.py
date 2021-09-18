@@ -42,7 +42,7 @@ def build_keyboard(context: CallbackContext, offset: int) -> list:
                                      leagues) - 1 else 'edit_config#-1'),
         ],
     ]
-    if context.user_data['leagues']:
+    if context.user_data.get('leagues', None):
         ik_btn = [InlineKeyboardButton("Next", callback_data='set_leagues')]
         keyboard.append(ik_btn)
     return keyboard
@@ -69,3 +69,8 @@ def convert_time(user_str_time: str, user_timezone: str) -> time:
     user_time = datetime.strptime(user_str_time, '%H:%M').time()
     utc_user_time = time_to_tz_naive(user_time, pytz.timezone(user_timezone), pytz.timezone("Etc/UTC"))
     return utc_user_time
+
+
+def yield_list(lst):
+    for elem in lst:
+        yield elem

@@ -13,10 +13,10 @@ DEVELOPER_USER_ID = os.environ.get("DEVELOPER_USER_ID")
 URL = "https://api-football-v1.p.rapidapi.com/v3/fixtures"
 
 BOT_LEAGUES = {
-    39: "🏴󠁧󠁢󠁥󠁮󠁧󠁿󠁢 Premier League",
-    140: "🇪🇸 La Liga",
+    39: '🏴󠁧󠁢󠁥󠁮󠁧󠁿󠁢 Premier League',
+    140: '🇪🇸 La Liga',
     61: '🇫🇷 Ligue 1',
-    135: "🇮🇹 Serie A",
+    135: '🇮🇹 Serie A',
     78: '🇩🇪 Bundesliga',
     2: '✨ UEFA Champions League',
     3: '🇪🇺 UEFA Europa League',
@@ -24,7 +24,7 @@ BOT_LEAGUES = {
     848: '🥉 UEFA Europa Conference League',
     94: '🇵🇹 Primeira Liga',
     88: '🇳🇱 Eredivisie',
-    180: '🏴󠁧󠁢󠁥󠁮󠁧󠁿 󠁢󠁥󠁮󠁧󠁿󠁢󠁥󠁮󠁧󠁿Championship',
+    180: '🏴󠁧󠁢󠁥󠁮󠁧󠁿󠁢 Championship',
     144: '🇧🇪 Jupiler Pro League',
     203: '🇹🇷 Super Lig',
 }
