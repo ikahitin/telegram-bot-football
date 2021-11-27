@@ -55,7 +55,12 @@ def send_fixtures(context: CallbackContext) -> None:
     text = make_request(context)
     if not text:
         text = 'Oh no, failed to send matches'
-    context.bot.send_message(chat_id, text=text)
+    try:
+        context.bot.send_message(chat_id, text=text)
+    except Unauthorized:
+        message = 'Job was removed, user blocked the bot'
+        context.bot.send_message(chat_id=DEVELOPER_CHAT_ID, text=message)
+        remove_job_if_exists(str(chat_id), context)
 
 
 def prepare_text_for_message(response: str, user_leagues: list) -> str:
